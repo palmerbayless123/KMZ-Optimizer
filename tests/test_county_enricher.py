@@ -60,6 +60,26 @@ def test_iter_enriched_rows_sets_missing_county_without_failure():
     assert rows[0]["County"] == ""
 
 
+def test_iter_enriched_rows_extracts_zip_from_address():
+    lookup = build_lookup_with_responses(
+        block_payload={},
+        area_payload={"results": [{"county_name": "Franklin County"}]},
+    )
+    rows = list(
+        iter_enriched_rows(
+            [
+                {
+                    "Id": "1",
+                    "Address": "123 Example St, Columbus, OH 43215",
+                }
+            ],
+            lookup,
+            fail_on_missing=False,
+        )
+    )
+    assert rows[0]["County"] == "Franklin County"
+
+
 def test_iter_enriched_rows_raises_when_requested():
     lookup = build_lookup_with_responses(block_payload={})
     with pytest.raises(CountyLookupError):

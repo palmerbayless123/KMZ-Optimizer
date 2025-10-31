@@ -6,6 +6,7 @@ import csv
 import json
 import logging
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
@@ -49,6 +50,40 @@ def _normalize_zip(zip_code: Optional[str]) -> Optional[str]:
     if len(digits) < 5:
         return None
     return digits[:5]
+
+
+_ZIP_FROM_ADDRESS_FIELDS = (
+    "Address",
+    "Street Address",
+    "Full Address",
+    "Street",
+    "Location",
+)
+
+_ZIP_PATTERN = re.compile(r"(\d{5})(?:-\d{4})?\b")
+
+
+def _extract_zip_from_address(row: Dict[str, str]) -> Optional[str]:
+    """Attempt to pull a ZIP code out of common address fields."""
+
+    candidate: Optional[str] = None
+    for field in _ZIP_FROM_ADDRESS_FIELDS:
+        value = row.get(field)
+        if not value:
+            continue
+        for match in _ZIP_PATTERN.finditer(str(value)):
+            candidate = match.group(0)
+
+        if candidate:
+            break
+
+    if not candidate:
+        # Combine city/state in case the ZIP is stored alongside them.
+        city_state = " ".join(filter(None, (row.get("City"), row.get("State"), row.get("State Code"))))
+        for match in _ZIP_PATTERN.finditer(city_state):
+            candidate = match.group(0)
+
+    return _normalize_zip(candidate)
 
 
 class _HTTPClient:
@@ -145,6 +180,8 @@ def iter_enriched_rows(
         latitude = _normalize_float(row.get("lat") or row.get("Latitude"))
         longitude = _normalize_float(row.get("lng") or row.get("Longitude"))
         zip_code = _normalize_zip(row.get("Zip Code") or row.get("zip") or row.get("postal_code"))
+        if zip_code is None:
+            zip_code = _extract_zip_from_address(row)
 
         county = lookup.lookup(latitude=latitude, longitude=longitude, zip_code=zip_code)
         if county:
