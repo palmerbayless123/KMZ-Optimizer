@@ -52,10 +52,15 @@ def _normalize_zip(zip_code: Optional[str]) -> Optional[str]:
 
 
 class _HTTPClient:
+    """Small wrapper around :func:`urllib.request.urlopen` with headers."""
+
+    _DEFAULT_HEADERS = {"User-Agent": "KMZOptimizer/1.0 (+https://github.com/)"}
+
     def get_json(self, url: str, params: Dict[str, object], timeout: int) -> Dict[str, object]:
         query = urllib_parse.urlencode(params)
         full_url = f"{url}?{query}"
-        with urllib_request.urlopen(full_url, timeout=timeout) as response:
+        request = urllib_request.Request(full_url, headers=self._DEFAULT_HEADERS)
+        with urllib_request.urlopen(request, timeout=timeout) as response:
             data = response.read()
         return json.loads(data.decode("utf-8"))
 
@@ -188,7 +193,18 @@ def build_argument_parser() -> "argparse.ArgumentParser":
 
     parser = argparse.ArgumentParser(description="Add county information to a ranked locations CSV.")
     parser.add_argument("input", type=Path, help="Path to the ranked locations CSV file")
-    parser.add_argument("--output", type=Path, help="Optional output path; defaults to '<name>_with_counties.csv'")
+    parser.add_argument(
+        "output",
+        nargs="?",
+        type=Path,
+        help="Optional output path; defaults to '<name>_with_counties.csv'",
+    )
+    parser.add_argument(
+        "--output",
+        dest="output",
+        type=Path,
+        help="Optional output path; defaults to '<name>_with_counties.csv'",
+    )
     parser.add_argument("--county-field", default="County", help="Name of the column to populate with county names")
     parser.add_argument(
         "--fail-on-missing",

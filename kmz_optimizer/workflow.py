@@ -87,6 +87,7 @@ def build_kmz_from_enriched_csv(
     latitude_field: str = "lat",
     longitude_field: str = "lng",
     description_fields: Optional[Sequence[str]] = None,
+    strict: bool = False,
 ) -> Path:
     """Step 4: Convert an enriched CSV dataset into a KMZ archive."""
 
@@ -105,6 +106,7 @@ def build_kmz_from_enriched_csv(
         latitude_field=latitude_field,
         longitude_field=longitude_field,
         description_fields=description_fields,
+        strict=strict,
     )
     return Path(kmz_path)
 
@@ -122,6 +124,7 @@ def run_csv_to_kmz_workflow(
     longitude_field: str = "lng",
     description_fields: Optional[Sequence[str]] = None,
     kml_output: Optional[Path] = None,
+    strict: bool = False,
 ) -> Tuple[Path, Path]:
     """Run the two-step workflow: enrich the CSV and produce a KMZ file."""
 
@@ -140,6 +143,7 @@ def run_csv_to_kmz_workflow(
         latitude_field=latitude_field,
         longitude_field=longitude_field,
         description_fields=description_fields,
+        strict=strict,
     )
     return enriched_csv, kmz_path
 
@@ -207,6 +211,11 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--description-fields",
         help="Comma separated list of columns to include in placemark descriptions",
     )
+    step4.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail instead of skipping rows with missing coordinates when generating the KMZ.",
+    )
 
     run = subparsers.add_parser(
         "run",
@@ -263,6 +272,11 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--description-fields",
         help="Comma separated list of columns to include in placemark descriptions",
     )
+    run.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail instead of skipping rows with missing coordinates when generating the KMZ.",
+    )
 
     return parser
 
@@ -298,6 +312,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             latitude_field=args.latitude_field,
             longitude_field=args.longitude_field,
             description_fields=description_fields,
+            strict=args.strict,
         )
         return 0
 
@@ -316,6 +331,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             latitude_field=args.latitude_field,
             longitude_field=args.longitude_field,
             description_fields=description_fields,
+            strict=args.strict,
         )
         return 0
 

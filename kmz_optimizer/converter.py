@@ -7,10 +7,14 @@ import csv
 import html
 import io
 import os
+import logging
 from typing import Iterable, List, Mapping, MutableMapping, Sequence
 from xml.etree import ElementTree as ET
 
 __all__ = ["convert_csv_to_kmz", "build_kml_document", "rows_from_csv"]
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def rows_from_csv(csv_path: str) -> Iterable[MutableMapping[str, str]]:
@@ -133,6 +137,7 @@ def convert_csv_to_kmz(
     longitude_field: str = "lng",
     description_fields: Sequence[str] | None = None,
     kml_path: str | None = None,
+    strict: bool = False,
 ) -> str:
     """Convert ``csv_path`` to a KMZ archive and return the output path."""
 
@@ -140,8 +145,29 @@ def convert_csv_to_kmz(
     if not rows:
         raise ValueError("CSV file did not contain any rows")
 
+    valid_rows: list[MutableMapping[str, str]] = []
+    skipped_rows = 0
+
+    for index, row in enumerate(rows, start=1):
+        try:
+            _as_float(row.get(latitude_field), latitude_field)
+            _as_float(row.get(longitude_field), longitude_field)
+        except ValueError as exc:
+            if strict:
+                raise
+            skipped_rows += 1
+            LOGGER.warning("Skipping row %s: %s", index, exc)
+            continue
+        valid_rows.append(row)
+
+    if not valid_rows:
+        raise ValueError(
+            "No valid rows found with latitude/longitude values. "
+            "Provide valid coordinates or run with --strict to inspect errors."
+        )
+
     kml_document = build_kml_document(
-        rows,
+        valid_rows,
         name_field=name_field,
         latitude_field=latitude_field,
         longitude_field=longitude_field,
@@ -159,6 +185,9 @@ def convert_csv_to_kmz(
             fh.write(kml_bytes)
 
     _write_kmz_bytes(kml_bytes, kmz_path)
+    if skipped_rows:
+        LOGGER.info("Skipped %s row(s) without valid coordinates", skipped_rows)
+
     return kmz_path
 
 
@@ -178,7 +207,8 @@ def _parse_field_list(value: str | None) -> Sequence[str] | None:
 def _build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a KMZ file from a CSV dataset.")
     parser.add_argument("csv", help="Input CSV file")
-    parser.add_argument("--kmz", help="Output KMZ path (defaults to CSV name)")
+    parser.add_argument("kmz", nargs="?", help="Output KMZ path (defaults to CSV name)")
+    parser.add_argument("--kmz", dest="kmz", help="Output KMZ path (defaults to CSV name)")
     parser.add_argument("--kml", help="Optional path to save the intermediate KML file")
     parser.add_argument("--name-field", default="Property Name", help="Column to use for placemark names")
     parser.add_argument("--latitude-field", default="lat", help="Column containing latitude values")
@@ -187,6 +217,11 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--description-fields",
         help="Comma separated list of columns to include in placemark descriptions",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail instead of skipping rows that are missing or contain invalid coordinates.",
+    )
     return parser
 
 
@@ -194,6 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_argument_parser()
     args = parser.parse_args(argv)
     description_fields = _parse_field_list(args.description_fields)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     convert_csv_to_kmz(
         args.csv,
         kmz_path=args.kmz,
@@ -202,6 +238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         latitude_field=args.latitude_field,
         longitude_field=args.longitude_field,
         description_fields=description_fields,
+        strict=args.strict,
     )
     return 0
 

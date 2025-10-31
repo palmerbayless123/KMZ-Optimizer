@@ -1,3 +1,4 @@
+import logging
 import zipfile
 from pathlib import Path
 
@@ -52,6 +53,32 @@ def test_convert_csv_to_kmz_writes_archive(tmp_path: Path):
     assert "Sample" in data
     assert "Somewhere" in data
     assert "2.000000000000,1.000000000000,0" in data
+
+
+def test_convert_csv_to_kmz_skips_invalid_rows(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    csv_content = "Name,lat,lng\nValid,1.0,2.0\nMissing,,3.0\nBad,abc,4.0\n"
+    csv_path = tmp_path / "points.csv"
+    csv_path.write_text(csv_content)
+
+    kmz_path = tmp_path / "points.kmz"
+    with caplog.at_level(logging.WARNING):
+        convert_csv_to_kmz(
+            str(csv_path),
+            kmz_path=str(kmz_path),
+            name_field="Name",
+            latitude_field="lat",
+            longitude_field="lng",
+        )
+
+    assert kmz_path.exists()
+    warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(warnings) >= 2
+    with zipfile.ZipFile(kmz_path) as zf:
+        data = zf.read("doc.kml").decode("utf-8")
+
+    assert "Valid" in data
+    assert "Missing" not in data
+    assert "Bad" not in data
 
 
 def _element_to_string(element):
