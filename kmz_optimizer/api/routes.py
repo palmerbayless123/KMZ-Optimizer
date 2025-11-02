@@ -7,16 +7,13 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
+from rq.exceptions import NoSuchJobError
+from rq.job import Job
 
 from ..config import APP_CONFIG, STORAGE_PATHS
-from ..core.exceptions import ProcessingError
-from ..pipelines import JobPipeline
 from ..utils.io import ensure_directory, safe_filename
 
 api_bp = Blueprint("api", __name__)
-
-jobs: dict[str, dict] = {}
-
 
 @api_bp.post("/jobs")
 def create_job():
@@ -50,28 +47,60 @@ def create_job():
         kmz_path = job_dir / filename
         kmz_file.save(kmz_path)
 
-    pipeline = JobPipeline.default()
+    created_at = datetime.utcnow().isoformat()
+    queue = _queue()
 
-    try:
-        summary = pipeline.run(csv_paths=csv_paths, kmz_path=kmz_path, job_id=job_id)
-    except ProcessingError as exc:
-        return jsonify({"error": exc.as_dict()}), 400
+    job = queue.enqueue(
+        "kmz_optimizer.tasks.process_job",
+        kwargs={
+            "job_id": job_id,
+            "csv_paths": [str(path) for path in csv_paths],
+            "kmz_path": str(kmz_path) if kmz_path else None,
+        },
+        job_id=job_id,
+        meta={"created_at": created_at},
+    )
 
-    jobs[job_id] = {
-        "summary": summary.as_dict(),
-        "created_at": datetime.utcnow().isoformat(),
+    response = {
+        "job_id": job.id,
+        "status": job.get_status(refresh=False),
+        "created_at": created_at,
     }
 
-    return jsonify(jobs[job_id]), 201
+    return jsonify(response), 202
 
 
 @api_bp.get("/jobs/<job_id>")
 def job_status(job_id: str):
-    job = jobs.get(job_id)
-    if not job:
+    try:
+        job = Job.fetch(job_id, connection=_connection())
+    except NoSuchJobError:
         return jsonify({"error": "Job not found"}), 404
-    return jsonify(job)
+
+    payload: dict[str, object] = {
+        "job_id": job.id,
+        "status": job.get_status(refresh=True),
+        "created_at": job.meta.get("created_at"),
+    }
+
+    if job.is_finished:
+        payload["result"] = job.result or {}
+        return jsonify(payload), 200
+    if job.is_failed:
+        payload["error"] = job.meta.get("error", job.exc_info)
+        return jsonify(payload), 500
+
+    payload["progress"] = job.meta.get("progress", 0)
+    return jsonify(payload), 200
 
 
 def _allowed(filename: str, extensions: tuple[str, ...]) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in extensions
+
+
+def _queue():
+    return current_app.extensions["rq"]["queue"]
+
+
+def _connection():
+    return current_app.extensions["rq"]["connection"]
