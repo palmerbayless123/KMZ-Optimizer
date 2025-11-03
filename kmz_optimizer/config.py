@@ -49,8 +49,15 @@ STORAGE_PATHS = StoragePaths(
     uploads=Path(os.environ.get("KMZ_OPTIMIZER_UPLOADS", "uploads")),
     outputs=Path(os.environ.get("KMZ_OPTIMIZER_OUTPUTS", "outputs")),
 )
+_redis_url = (
+    os.environ.get("KMZ_OPTIMIZER_REDIS_URL")
+    or os.environ.get("REDIS_URL")
+    or os.environ.get("RAILWAY_REDIS_URL")
+    or QueueConfig.redis_url
+)
+
 QUEUE_CONFIG = QueueConfig(
-    redis_url=os.environ.get("KMZ_OPTIMIZER_REDIS_URL", QueueConfig.redis_url),
+    redis_url=_redis_url,
     queue_name=os.environ.get("KMZ_OPTIMIZER_QUEUE", QueueConfig.queue_name),
     default_timeout=int(
         os.environ.get("KMZ_OPTIMIZER_QUEUE_TIMEOUT", QueueConfig.default_timeout)
